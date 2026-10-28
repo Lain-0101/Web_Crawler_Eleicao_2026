@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# --- 1. Seleção do Município do Maranhão ---
+# --- 1. SELEÇÃO DO MUNICÍPIO ---
 echo "========================================"
 echo "    CRAWLER ELEIÇÕES MA - SELEÇÃO       "
 echo "========================================"
@@ -12,12 +12,12 @@ options=("Imperatriz" "São Luís" "Caxias" "Timon" "Sair")
 select muni in "${options[@]}"; do
     case $muni in
         "Imperatriz")
-            CD_MUNICIPIO="07552" # Código TSE da cidade
+            CD_MUNICIPIO="07552"
             NOME_MUNICIPIO="Imperatriz"
             break
             ;;
         "São Luís")
-            CD_MUNICIPIO="09210" # Código TSE da cidade
+            CD_MUNICIPIO="09210"
             NOME_MUNICIPIO="São Luís"
             break
             ;;
@@ -41,17 +41,19 @@ select muni in "${options[@]}"; do
     esac
 done
 
-# --- 2. Seleção do Turno ---
+# --- 2. SELEÇÃO DO TURNO ---
 echo ""
 echo "Selecione o turno da eleição:"
 select turno in "1º Turno" "2º Turno"; do
     case $turno in
         "1º Turno")
             NUM_TURNO="1"
+            PLEITO="619"
             break
             ;;
         "2º Turno")
             NUM_TURNO="2"
+            PLEITO="620"
             break
             ;;
         *)
@@ -61,4 +63,59 @@ select turno in "1º Turno" "2º Turno"; do
 done
 
 echo ""
-echo ">> Consultando dados para: $NOME_MUNICIPIO - $turno..."
+echo ">> Consultando dados no TSE para: $NOME_MUNICIPIO ($turno)..."
+echo "--------------------------------------------------------"
+
+# --- 3. REQUISIÇÃO E PROCESSAMENTO DAS DADOS DO TSE ---
+# Usamos c0013 e c0011 em fallback dentro do Python
+python3 -c "
+import urllib.request
+import json
+
+cd_muni = '$CD_MUNICIPIO'
+pleito = '$PLEITO'
+
+# Lista de códigos de cargos possíveis na API do TSE (c0013 / c0011)
+urls = [
+    f'https://resultados.tse.jus.br/oficial/ele2024/{pleito}/dados/ma/ma{cd_muni}-c0013-e000{pleito}-v.json',
+    f'https://resultados.tse.jus.br/oficial/ele2024/{pleito}/dados/ma/ma{cd_muni}-c0011-e000{pleito}-v.json',
+    f'https://resultados.tse.jus.br/oficial/ele2024/{pleito}/dados/ma/ma{cd_muni}-c0013-e000{pleito}-u.json'
+]
+
+sucesso = False
+
+for url in urls:
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            
+            print('\nCANDIDATOS / RESULTADO FINAL:')
+            print('--------------------------------------------------------')
+            
+            candidatos = data['carg'][0]['agr']
+            for agrupo in candidatos:
+                for c in agrupo['cand']:
+                    nome = c.get('nm', 'N/A')
+                    partido = c.get('sgp', '')
+                    votos = c.get('vap', '0')
+                    situacao = c.get('st', 'Não informado')
+                    
+                    # Destaque ANSI Verde para Eleitos
+                    if any(term in situacao.upper() for term in ['ELEITO', '2º TURNO']):
+                        print(f'\033[32m[ELEITO/CLASSIFICADO] {nome} ({partido}) - {votos} votos | Status: {situacao}\033[0m')
+                    else:
+                        print(f'                      {nome} ({partido}) - {votos} votos | Status: {situacao}')
+            
+            sucesso = True
+            break
+    except Exception:
+        continue
+
+if not sucesso:
+    print('\033[31m[AVISO] Não foi possível carregar os dados para essa seleção.\033[0m')
+    print('Motivo: O turno selecionado não ocorreu neste município ou a API do TSE requer conexão à internet.')
+"
+
+echo "--------------------------------------------------------"
+echo "Consulta realizada!"
