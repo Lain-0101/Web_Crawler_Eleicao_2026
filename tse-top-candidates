@@ -1,121 +1,207 @@
-#!/bin/bash
 
-# --- 1. SELEÇÃO DO MUNICÍPIO ---
-echo "========================================"
-echo "    CRAWLER ELEIÇÕES MA - SELEÇÃO       "
-echo "========================================"
-echo "Selecione o município do Maranhão que deseja consultar:"
+#!/usr/bin/env python3
 
-PS3="Digite o número da opção desejada: "
-options=("Imperatriz" "São Luís" "Caxias" "Timon" "Sair")
-
-select muni in "${options[@]}"; do
-    case $muni in
-        "Imperatriz")
-            CD_MUNICIPIO="07552"
-            NOME_MUNICIPIO="Imperatriz"
-            break
-            ;;
-        "São Luís")
-            CD_MUNICIPIO="09210"
-            NOME_MUNICIPIO="São Luís"
-            break
-            ;;
-        "Caxias")
-            CD_MUNICIPIO="07250"
-            NOME_MUNICIPIO="Caxias"
-            break
-            ;;
-        "Timon")
-            CD_MUNICIPIO="09318"
-            NOME_MUNICIPIO="Timon"
-            break
-            ;;
-        "Sair")
-            echo "Encerrando a consulta."
-            exit 0
-            ;;
-        *) 
-            echo "Opção inválida! Tente novamente."
-            ;;
-    esac
-done
-
-# --- 2. SELEÇÃO DO TURNO ---
-echo ""
-echo "Selecione o turno da eleição:"
-select turno in "1º Turno" "2º Turno"; do
-    case $turno in
-        "1º Turno")
-            NUM_TURNO="1"
-            PLEITO="619"
-            break
-            ;;
-        "2º Turno")
-            NUM_TURNO="2"
-            PLEITO="620"
-            break
-            ;;
-        *)
-            echo "Opção inválida! Tente novamente."
-            ;;
-    esac
-done
-
-echo ""
-echo ">> Consultando dados no TSE para: $NOME_MUNICIPIO ($turno)..."
-echo "--------------------------------------------------------"
-
-# --- 3. REQUISIÇÃO E PROCESSAMENTO DAS DADOS DO TSE ---
-# Usamos c0013 e c0011 em fallback dentro do Python
-python3 -c "
-import urllib.request
 import json
+import urllib.request
+import urllib.error
 
-cd_muni = '$CD_MUNICIPIO'
-pleito = '$PLEITO'
+CIDADES = {
+    "1": ("São Luís", "09210"),
+    "2": ("Imperatriz", "07552"),
+    "3": ("Caxias", "07250"),
+}
 
-# Lista de códigos de cargos possíveis na API do TSE (c0013 / c0011)
-urls = [
-    f'https://resultados.tse.jus.br/oficial/ele2024/{pleito}/dados/ma/ma{cd_muni}-c0013-e000{pleito}-v.json',
-    f'https://resultados.tse.jus.br/oficial/ele2024/{pleito}/dados/ma/ma{cd_muni}-c0011-e000{pleito}-v.json',
-    f'https://resultados.tse.jus.br/oficial/ele2024/{pleito}/dados/ma/ma{cd_muni}-c0013-e000{pleito}-u.json'
-]
+CARGOS = {
+    "1": ("Governador", "0003"),
+    "2": ("Senador", "0005"),
+    "3": ("Deputado Federal", "0006"),
+    "4": ("Deputado Estadual", "0007"),
+}
 
-sucesso = False
+TURNOS = {
+    "1": ("1º Turno", "6259", "006259"),
+    "2": ("2º Turno", "6260", "006260"),
+}
 
-for url in urls:
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            
-            print('\nCANDIDATOS / RESULTADO FINAL:')
-            print('--------------------------------------------------------')
-            
-            candidatos = data['carg'][0]['agr']
-            for agrupo in candidatos:
-                for c in agrupo['cand']:
-                    nome = c.get('nm', 'N/A')
-                    partido = c.get('sgp', '')
-                    votos = c.get('vap', '0')
-                    situacao = c.get('st', 'Não informado')
-                    
-                    # Destaque ANSI Verde para Eleitos
-                    if any(term in situacao.upper() for term in ['ELEITO', '2º TURNO']):
-                        print(f'\033[32m[ELEITO/CLASSIFICADO] {nome} ({partido}) - {votos} votos | Status: {situacao}\033[0m')
-                    else:
-                        print(f'                      {nome} ({partido}) - {votos} votos | Status: {situacao}')
-            
-            sucesso = True
+
+def escolher(titulo, opcoes):
+    print(f"\n{titulo}")
+
+    for numero, dados in opcoes.items():
+        print(f"{numero}) {dados[0]}")
+
+    while True:
+        opcao = input("Digite sua opção: ").strip()
+
+        if opcao in opcoes:
+            return opcao
+
+        print("Opção inválida. Tente novamente.")
+
+
+def baixar_json(url):
+    requisicao = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0"}
+    )
+
+    with urllib.request.urlopen(requisicao, timeout=20) as resposta:
+        return json.loads(resposta.read().decode("utf-8"))
+
+
+def encontrar_candidatos(dados):
+    encontrados = []
+    vistos = set()
+
+    def percorrer(item):
+        if isinstance(item, dict):
+            if item.get("nm") and item.get("vap") is not None:
+                nome = str(item["nm"])
+                partido = str(item.get("sgp", "N/I"))
+                numero = str(item.get("n", ""))
+
+                chave = (nome, partido, numero)
+
+                if chave not in vistos:
+                    vistos.add(chave)
+
+                    encontrados.append({
+                        "nome": nome,
+                        "partido": partido,
+                        "votos": item.get("vap", 0),
+                        "situacao": item.get("st", "Não informada"),
+                        "eleito": str(
+                            item.get("e", "")
+                        ).lower() == "s",
+                    })
+
+            for valor in item.values():
+                if isinstance(valor, (dict, list)):
+                    percorrer(valor)
+
+        elif isinstance(item, list):
+            for valor in item:
+                percorrer(valor)
+
+    percorrer(dados)
+    return encontrados
+
+
+def consultar_resultados(cidade, codigo_municipio, cargo, codigo_cargo,
+                         turno, pleito, pleito_arquivo):
+
+    base = (
+        "https://resultados.tse.jus.br/oficial/"
+        f"ele2026/{pleito}/dados/ma/"
+    )
+
+    arquivos = [
+        f"ma{codigo_municipio}-c{codigo_cargo}-e{pleito_arquivo}-u.json",
+        f"ma-c{codigo_cargo}-e{pleito_arquivo}-u.json",
+    ]
+
+    dados = None
+    arquivo_usado = None
+
+    for arquivo in arquivos:
+        try:
+            dados = baixar_json(base + arquivo)
+            arquivo_usado = arquivo
             break
-    except Exception:
-        continue
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            TimeoutError,
+            json.JSONDecodeError,
+            OSError,
+        ):
+            continue
 
-if not sucesso:
-    print('\033[31m[AVISO] Não foi possível carregar os dados para essa seleção.\033[0m')
-    print('Motivo: O turno selecionado não ocorreu neste município ou a API do TSE requer conexão à internet.')
-"
+    if dados is None:
+        print("\nNão foi possível acessar os resultados do TSE.")
+        print("Confira a conexão e tente novamente.")
+        return
 
-echo "--------------------------------------------------------"
-echo "Consulta realizada!"
+    candidatos = encontrar_candidatos(dados)
+
+    print("\n" + "=" * 42)
+    print("RESULTADOS ELEITORAIS")
+    print("=" * 42)
+    print(f"Cidade selecionada: {cidade}")
+    print(f"Cargo: {cargo}")
+    print(f"Turno: {turno}")
+    print(f"Arquivo consultado: {arquivo_usado}")
+
+    if codigo_municipio not in arquivo_usado:
+        print("Aviso: arquivo com resultados estaduais.")
+
+    if not candidatos:
+        print("\nNenhum candidato encontrado no formato esperado.")
+        if isinstance(dados, dict):
+            print("Chaves do arquivo:", list(dados.keys()))
+        return
+
+    def numero_votos(candidato):
+        try:
+            return int(str(candidato["votos"]).replace(".", ""))
+        except (ValueError, TypeError):
+            return 0
+
+    candidatos.sort(key=numero_votos, reverse=True)
+
+    print("\nCANDIDATOS ENCONTRADOS")
+    print("-" * 42)
+
+    for candidato in candidatos:
+        marcador = "[ELEITO] " if candidato["eleito"] else ""
+
+        print(f"{marcador}{candidato['nome']}")
+        print(f"Partido: {candidato['partido']}")
+        print(f"Votos: {candidato['votos']}")
+        print(f"Situação: {candidato['situacao']}")
+        print("-" * 42)
+
+    print("Consulta finalizada!")
+
+
+def main():
+    print("=" * 42)
+    print("   RESULTADOS ELEITORAIS DO MARANHÃO")
+    print("                 ANO 2026")
+    print("=" * 42)
+
+    cidade_id = escolher("Escolha uma cidade:", CIDADES)
+    cidade, codigo_municipio = CIDADES[cidade_id]
+
+    cargo_id = escolher("Escolha o cargo:", CARGOS)
+    cargo, codigo_cargo = CARGOS[cargo_id]
+
+    turno_id = escolher("Escolha o turno:", TURNOS)
+    turno, pleito, pleito_arquivo = TURNOS[turno_id]
+
+    if turno_id == "2" and cargo_id != "1":
+        print("\nA consulta de segundo turno está disponível")
+        print("neste programa somente para Governador.")
+        return
+
+    print("\nPreparando consulta...")
+    consultar_resultados(
+        cidade,
+        codigo_municipio,
+        cargo,
+        codigo_cargo,
+        turno,
+        pleito,
+        pleito_arquivo,
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except EOFError:
+        print("\nA entrada do terminal foi encerrada.")
+    except KeyboardInterrupt:
+        print("\nConsulta cancelada.")
+    except Exception as erro:
+        print(f"\nOcorreu um erro: {erro}")
