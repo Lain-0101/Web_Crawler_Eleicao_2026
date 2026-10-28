@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# --- 1. Seleção do Município do Maranhão ---
+echo "========================================"
+echo "    CRAWLER ELEIÇÕES MA - SELEÇÃO       "
+echo "========================================"
+echo "Selecione o município do Maranhão que deseja consultar:"
+
+PS3="Digite o número da opção desejada: "
+options=("Imperatriz" "São Luís" "Caxias" "Timon" "Sair")
+
+select muni in "${options[@]}"; do
+    case $muni in
+        "Imperatriz")
+            CD_MUNICIPIO="07552" # Código TSE da cidade
+            NOME_MUNICIPIO="Imperatriz"
+            break
+            ;;
+        "São Luís")
+            CD_MUNICIPIO="09210" # Código TSE da cidade
+            NOME_MUNICIPIO="São Luís"
+            break
+            ;;
+        "Caxias")
+            CD_MUNICIPIO="07250"
+            NOME_MUNICIPIO="Caxias"
+            break
+            ;;
+        "Timon")
+            CD_MUNICIPIO="09318"
+            NOME_MUNICIPIO="Timon"
+            break
+            ;;
+        "Sair")
+            echo "Encerrando a consulta."
+            exit 0
+            ;;
+        *) 
+            echo "Opção inválida! Tente novamente."
+            ;;
+    esac
+done
+
+# --- 2. Seleção do Turno ---
+echo ""
+echo "Selecione o turno da eleição:"
+select turno in "1º Turno" "2º Turno"; do
+    case $turno in
+        "1º Turno")
+            NUM_TURNO="1"
+            break
+            ;;
+        "2º Turno")
+            NUM_TURNO="2"
+            break
+            ;;
+        *)
+            echo "Opção inválida! Tente novamente."
+            ;;
+    esac
+done
+
+echo ""
+echo ">> Consultando dados para: $NOME_MUNICIPIO - $turno..."
